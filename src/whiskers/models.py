@@ -22,6 +22,8 @@ from sqlalchemy.orm import (
     backref
 )
 
+from whiskers.checker import BaseChecker
+
 from zope.sqlalchemy import ZopeTransactionExtension
 from zope.interface import implementer
 from whiskers import interfaces
@@ -94,15 +96,65 @@ class Buildout(Base):
 
     @classmethod
     def get_by_checksum(klass, checksum):
+        """returns a list of all buildouts which have te given checksum"""
         query = DBSession.query(klass).\
             filter(klass.checksum == checksum).first()
         return query
 
     @classmethod
     def get_by_name(klass, name):
+        """returns a list of all buildouts which have te given name"""
         query = DBSession.query(klass).filter(klass.name == name).\
             order_by(klass.datetime.desc())
         return query
+
+    @classmethod
+    def get_by_name_host(klass, name, host):
+        """returns a list of all buildouts which have te given name and host"""
+        query = DBSession.query(klass).filter(klass.name == name, klass.host == host).\
+            order_by(klass.datetime.desc())
+        return query
+
+    @classmethod
+    def get_newest_by_name(klass, name):
+        """Returns the newest buildout with the given name or
+        None if no buildouts exists with that name"""
+        return klass.get_by_name(name).first()
+
+    @classmethod
+    def get_newest_by_name_host(klass, name, host):
+        """Returns the newest buildout with the given name and the given host.
+        None otherwise"""
+        return klass.get_by_name_host(name, host).first()
+
+    def isNewest(self):
+        """Returns True when self is the latest buildout with the same name"""
+        return self == self.get_newest_by_name(self.name)
+
+    def isNewestOnTheSameHost(self):
+        return self == self.get_newest_by_name_host(self.name, self.host)
+
+    def getNewest(self):
+        """Returns the newest buildout with the same name as this buildout (independent of host)"""
+        return self.get_newest_by_name(self.name)
+
+    def getNewestOnTheSameHost(self):
+        """Returns the newest buildout with the same name and the same host as this buildout"""
+        return self.get_newest_by_name_host(self.name, self.host)
+
+    def hostsWithThisBuildout(self):
+        return set([b.host for b in self.get_by_name(self.name)])  # TODO: optimize by using SQL query
+
+    @property
+    def config_dict(self):
+        try:
+            return json.loads(self.config)
+        except TypeError:
+            return None
+
+    @config_dict.setter
+    def config_dict(self, value):
+        self.config = json.dumps(value)
 
     @classmethod
     def get_by_id(klass, id):
@@ -126,6 +178,10 @@ class Buildout(Base):
             'host': self.host.get_as_dict(),
             'packages': [package.get_as_dict() for package in
                          self.packages]}
+
+    def checknewversions(self, only_final_versions=False):
+        """Check for new versions of all packages in this buildout"""
+        return BuildoutPackagesChecker(self, only_final_versions=only_final_versions).check()
 
 
 @implementer(interfaces.IHost)
@@ -255,6 +311,25 @@ class Package(Base):
         except NoResultFound:
             return None
 
+    @classmethod
+    def get_newest_by_name(klass, name):
+        """Returns the newest package with the given name or
+        None if no package exists with that name"""
+        return klass.get_packages_by_name(name).first()
+
+    def isNewest(self):
+        """Returns True when self is the latest package with the same name"""
+        return self == self.get_newest_by_name(self.name)
+
+    def getNewest(self):
+        return self.get_newest_by_name(self.name)
+
+    @classmethod
+    def get_all_newest(klass):
+        """Return a list of Package which contains all packages which does not have
+        a package with a newer version in the database."""
+        return [i for i in klass.by_name() if i.isNewest()]
+
     def get_as_dict(self):
         """Return package data as dict."""
         return {'id': self.id,
@@ -329,3 +404,19 @@ def initialize_sql(engine):
     DBSession.configure(bind=engine)
     Base.metadata.bind = engine
     Base.metadata.create_all(engine)
+
+
+class AllPackagesChecker(BaseChecker):
+
+    def get_versions(self):
+        return {p.name : p.version.version for p in Package.get_all_newest()}
+
+
+class BuildoutPackagesChecker(BaseChecker):
+
+    def __init__(self, buildout, **kw):
+        self.buildout = buildout
+        BaseChecker.__init__(self, index_url=buildout.config_dict['index'], **kw)
+
+    def get_versions(self):
+        return {p.name : p.version.version for p in self.buildout.packages}

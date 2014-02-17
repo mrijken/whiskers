@@ -14,9 +14,22 @@
           <a href="${request.route_url('host', host_id=buildout.host.id)}">
             ${buildout.host.name}
           </a>
+          <tal:block tal:define="hosts buildout.hostsWithThisBuildout()" tal:condition="len(hosts)>1">
+            <div>Also available on hosts:</div>
+            <ul>
+                <tal:block tal:repeat="h hosts">
+                    <li tal:condition="h!=buildout.host"><a href="${request.route_url('host', host_id=h.id)}">${h.name}</a></li>
+                </tal:block>
+            </ul>
+
+          </tal:block
         </dd>
         <dt>Added or modified</dt>
         <dd>${buildout.datetime.strftime("%Y-%m-%d %H:%M:%S")}</dd>
+        <dt>Actions</dt>
+        <dd><a class="btn btn-small btn-primary" href="?checknewversions">Check for new versions of the packages on the index</a></dd>
+        <dd><a class="btn btn-small btn-primary" href="?delete">Delete this buildout</a></dd>
+        <dd><a class="btn btn-small btn-primary" href="?delete&allrevisions">Delete all buildouts with this name (${buildout.name}) on this host</a></dd>
       </dl>
       <div class="config">
         <a href="#buildoutConfig" role="button" class="" data-toggle="modal">
@@ -51,9 +64,14 @@
             <a href="${request.route_url('packages')}/${package.name}/${package.id}">
               <span tal:content="string: ${package.name}" />
               <tal:block tal:condition="package.version">
-                - 
-                <span tal:content="string: ${package.version.version}" />
+                -
+                ${package.version.version}
               </tal:block>
+            </a>
+              <a tal:define="newest_package package.getNewest()"
+                 tal:condition="newest_package != package"
+                 href="${request.route_url('packages')}/${newest_package.name}/${newest_package.id}"
+                 style="color: red">(${newest_package.version.version})
             </a>
           </p>
         </div>

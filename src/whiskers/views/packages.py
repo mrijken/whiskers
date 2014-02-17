@@ -1,5 +1,5 @@
 import json
-from whiskers.models import (Package, DBSession)
+from whiskers import models
 from pyramid.renderers import get_renderer
 
 
@@ -12,7 +12,7 @@ class PackagesView(object):
 
     def __call__(self):
         """Main view for packages."""
-        packages = Package.by_name()
+        packages = models.Package.by_name()
         unused = [{'id': package.id,
                    'name': package.name,
                    'version': package.version.version} for package in
@@ -28,12 +28,12 @@ class PackagesView(object):
         package_name = self.request.matchdict.get('package_name', None)
         package_id = self.request.matchdict.get('id', None)
 
-        packages = Package.get_packages_by_name(package_name)
+        packages = models.Package.get_packages_by_name(package_name)
         requires = None
         other_versions = False
 
         if package_id:
-            package = packages.filter(Package.id == package_id).first()
+            package = packages.filter(models.Package.id == package_id).first()
             if package and package.requires:
                 requires = package.requires
         else:
@@ -50,6 +50,6 @@ class PackagesView(object):
     def delete_package(self):
         """Delete unused package."""
         package_id = self.request.matchdict.get('id', None)
-        package = DBSession.query(Package).filter(Package.id == package_id).first()
-        DBSession.delete(package)
+        package = models.DBSession.query(models.Package).filter(models.Package.id == package_id).first()
+        models.DBSession.delete(package)
         return json.dumps(dict(result="OK"))

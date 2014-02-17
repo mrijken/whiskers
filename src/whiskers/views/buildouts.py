@@ -1,4 +1,3 @@
-import json
 import zlib
 import logging
 
@@ -6,14 +5,10 @@ from datetime import datetime
 
 from pyramid.response import Response
 from pyramid.renderers import get_renderer
+from pyramid.httpexceptions import HTTPFound
+
 from whiskers.jsonwrapper import JsonDataWrapper
-from whiskers.models import (
-    Buildout,
-    Package,
-    Host,
-    Version,
-    Settings,
-    DBSession)
+from whiskers import models
 
 
 class BuildoutsView(object):
@@ -36,10 +31,10 @@ class BuildoutsView(object):
     def get_buildouts_info(self):
         """Return list of dicts containing Buildout info."""
 
-        query = DBSession.query(Buildout).\
-            join(Buildout.host).\
-            group_by(Buildout.name).\
-            order_by(Buildout.datetime).\
+        query = models.DBSession.query(models.Buildout).\
+            join(models.Buildout.host).\
+            group_by(models.Buildout.name).\
+            order_by(models.Buildout.datetime).\
             all()
 
         return query
@@ -49,12 +44,12 @@ class BuildoutsView(object):
         try:
             data = self.request.json_body['data']
             checksum = zlib.adler32(self.request.body)
-            checksum_buildout = Buildout.get_by_checksum(checksum)
+            checksum_buildout = models.Buildout.get_by_checksum(checksum)
             if checksum_buildout:
                 logging.info("Checksum matched")
                 logging.info("Updating datetime..")
                 checksum_buildout.datetime = datetime.now()
-                DBSession.flush()
+                models.DBSession.flush()
                 raise Exception("No changes with existing data.")
             logging.info("New checksum")
             jsondata = JsonDataWrapper(data)
@@ -67,10 +62,10 @@ class BuildoutsView(object):
             return Response(u"Adding information failed. Error was: {error}".
                             format(error=str(e)))
 
-        host = Host.get_by_name(jsondata.hostname)
+        host = models.Host.get_by_name(jsondata.hostname)
 
         if not host:
-            host = Host.add(jsondata.hostname, jsondata.ipv4)
+            host = models.Host.add(jsondata.hostname, jsondata.ipv4)
 
         self.add_buildout(jsondata, host, checksum)
 
@@ -80,36 +75,36 @@ class BuildoutsView(object):
         packages = []
 
         for package_info in data.packages:
-            package = Package.get_by_nameversion(package_info['name'],
+            package = models.Package.get_by_nameversion(package_info['name'],
                                                  package_info['version'])
             if not package:
                 equation = package_info.get('equation', None)
-                version = Version.get_by_version(package_info['version']) or\
-                    Version.add(package_info['version'], equation)
+                version = models.Version.get_by_version(package_info['version']) or\
+                    models.Version.add(package_info['version'], equation)
                 requirements = self.get_requirements(
                     package_info['requirements'], data.versionmap)
-                package = Package.add(package_info['name'],
+                package = models.Package.add(package_info['name'],
                                       version,
                                       requirements)
 
             packages.append(package)
 
-        buildout = Buildout(data.name, host, checksum, started=data.started,
+        buildout = models.Buildout(data.name, host, checksum, started=data.started,
                             finished=data.finished, packages=packages,
                             config=data.config)
 
-        DBSession.add(buildout)
-        self.remove_old_buildouts(data.name)
+        models.DBSession.add(buildout)
+        self.remove_old_buildouts(data.name, host)
         return buildout
 
-    def remove_old_buildouts(self, name):
+    def remove_old_buildouts(self, name, host):
         """Remove old buildouts."""
-        buildouts_to_keep = Settings.get_buildouts_to_keep()
-        buildouts = Buildout.get_by_name(name)
+        buildouts_to_keep = models.Settings.get_buildouts_to_keep()
+        buildouts = models.Buildout.get_by_name_host(name, host)
 
         if buildouts.count() > buildouts_to_keep and buildouts_to_keep > 0:
             for buildout in buildouts[buildouts_to_keep:]:
-                DBSession.delete(buildout)
+                models.DBSession.delete(buildout)
 
     def get_requirements(self, requirements, versionmap):
         """Return list of package requirements."""
@@ -128,13 +123,13 @@ class BuildoutsView(object):
             else:
                 if version != versionmap[name]:
                     version = versionmap[name]
-            package = Package.get_by_nameversion(name,
+            package = models.Package.get_by_nameversion(name,
                                                  version)
             if not package:
                 equation = req.get('equation', None)
-                version = Version.get_by_version(version) or\
-                    Version.add(version, equation)
-                package = Package.add(req['name'], version)
+                version = models.Version.get_by_version(version) or\
+                    models.Version.add(version, equation)
+                package = models.Package.add(req['name'], version)
             packages.append(package)
 
         return packages
@@ -142,29 +137,42 @@ class BuildoutsView(object):
     def buildout_view(self):
         """Return a buildout specified by buildout_id."""
         buildout_id = self.request.matchdict['buildout_id']
-        buildout = DBSession.query(Buildout).filter_by(
-            id=int(buildout_id)).one()
+        buildout = models.DBSession.query(models.Buildout).filter_by(
+           id=int(buildout_id)).one()
 
-        new_buildouts = DBSession.query(Buildout).\
-            join(Buildout.host).\
-            filter(Buildout.host == buildout.host,
-                   Buildout.name == buildout.name,
-                   Buildout.id != buildout_id,
-                   Buildout.datetime > buildout.datetime).\
-            order_by(Buildout.datetime).all()
+        if 'delete' in self.request.params:
+            if 'allrevisions' in self.request.params:
+                for b in models.Buildout.get_by_name_host(buildout.name, buildout.host).all():
+                    models.DBSession.delete(b)
+            else:
+                models.DBSession.delete(buildout)
 
-        older_buildouts = DBSession.query(Buildout).join(Buildout.host).\
-            filter(Buildout.host == buildout.host,
-                   Buildout.name == buildout.name,
-                   Buildout.datetime < buildout.datetime,
-                   Buildout.id != buildout_id).\
-            order_by(Buildout.datetime).all()
+            return HTTPFound(location=self.request.route_url('buildouts'))
 
-        try:
-            config = json.loads(buildout.config)
-        except TypeError:
-            config = None
+        if 'checknewversions' in self.request.params:
+            for (name, version) in buildout.checknewversions():
+                package = models.Package.get_by_nameversion(name, version)
+                if not package:
+                    version = models.Version.get_by_version(version) or\
+                        models.Version.add(version, None)
+                    package = models.Package.add(name, version)
 
-        return {'buildout': buildout, 'main': self.main, 'config': config,
+        new_buildouts = models.DBSession.query(models.Buildout).\
+            join(models.Buildout.host).\
+            filter(models.Buildout.host == buildout.host,
+                   models.Buildout.name == buildout.name,
+                   models.Buildout.id != buildout_id,
+                   models.Buildout.datetime > buildout.datetime).\
+            order_by(models.Buildout.datetime).all()
+
+        older_buildouts = models.DBSession.query(models.Buildout).join(models.Buildout.host).\
+            filter(models.Buildout.host == buildout.host,
+                   models.Buildout.name == buildout.name,
+                   models.Buildout.datetime < buildout.datetime,
+                   models.Buildout.id != buildout_id).\
+            order_by(models.Buildout.datetime).all()
+
+        return {'buildout': buildout, 'main': self.main, 'config': buildout.config_dict,
                 'older_buildouts': older_buildouts,
                 'new_buildouts': new_buildouts}
+

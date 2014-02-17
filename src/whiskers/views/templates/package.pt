@@ -16,6 +16,10 @@
           ${package.version.version}
         </h3>
 
+        <div tal:condition="not: package.buildouts">
+          <p>This package is not used by any buildouts anymore or yet.</p>
+        </div>
+
         <a class="all-versions" tal:condition="other_versions"
            href="${request.route_url('packages')}/${package_name}">
            (all versions)
@@ -23,8 +27,14 @@
 
         <div class="used_by" tal:condition="package.buildouts">
           <h5>This package is used by following buildouts:</h5>
+          <p tal:condition="not:'all_buildouts' in request.params">
+            Note: Only the newest buildouts are shown. <a class="btn btn-small btn-primary" href="?all_buildouts"> Show all versions of the buildouts</a>
+          </p>
+          <p tal:condition="'all_buildouts' in request.params">
+            Note: All versions of the buildouts are shown. <a class="btn btn-small btn-primary" href="?">Show only the newest buildouts</a>
+          </p>
           <ul>
-            <li tal:repeat="buildout package.buildouts">
+            <li tal:repeat="buildout [b for b in package.buildouts if (('all_buildouts' in request.params) or b.isNewest())]">
               <a href="${request.route_url('buildouts')}/${buildout.id}">
                 ${buildout.name} - ${buildout.datetime.strftime("%Y-%m-%d %H:%M:%S")}
               </a>
@@ -56,20 +66,31 @@
       </div>
 
       <tal:packages tal:condition="not: package" tal:repeat="result packages">
-        <div tal:condition="result.buildouts" class="package-details">
-          <h3>${result.version.version}</h3>
+           <h3>
+            <a class="all-versions" tal:condition="other_versions"
+            href="${request.route_url('packages')}/${package_name}/${result.id}">
+           ${result.version.version}
+            </a>
+          </h3>
+
+       <div tal:condition="result.buildouts" class="package-details">
           <p>This package is used by following buildouts:</p>
+          <p tal:condition="not:'all_buildouts' in request.params">
+            Note: Only the newest buildouts are shown. <a class="btn btn-small btn-primary" href="?all_buildouts"> Show all versions of the buildouts</a>
+          </p>
+          <p tal:condition="'all_buildouts' in request.params">
+            Note: All versions of the buildouts are shown. <a class="btn btn-small btn-primary" href="?">Show only the newest buildouts</a>
+          </p>
           <ul>
-            <li tal:repeat="buildout result.buildouts">
+            <li tal:repeat="buildout [b for b in result.buildouts if ('all_buildouts' in request.params or b.isNewest())]">
               <a href="${request.route_url('buildouts')}/${buildout.id}">
                 ${buildout.name} - ${buildout.datetime.strftime("%Y-%m-%d %H:%M:%S")}
               </a>
             </li>
           </ul>
         </div>
-        <div tal:condition="not: result.buildouts" class="package-details">
-          <h3>${result.version.version}</h3>
-          <p>This package is not used by any buildouts anymore.</p>
+        <div tal:condition="not: result.buildouts">
+          <p>This package is not used by any buildouts anymore or yet.</p>
         </div>
       </tal:packages>
     </div>
