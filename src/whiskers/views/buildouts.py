@@ -1,5 +1,6 @@
 import zlib
 import logging
+import json
 
 from datetime import datetime
 
@@ -41,8 +42,10 @@ class BuildoutsView(object):
 
     def post(self):
         """Add a new buildout to database."""
+        import urllib
         try:
-            data = self.request.json_body['data']
+#            data = json.loads(urllib2.unquote(self.request.body).replace('+','')[len("data="):])
+            data = json.loads(urllib.unquote_plus(self.request.body)[len("data="):])
             checksum = zlib.adler32(self.request.body)
             checksum_buildout = models.Buildout.get_by_checksum(checksum)
             if checksum_buildout:
