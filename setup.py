@@ -17,6 +17,7 @@ requires = [
     'transaction',
     'waitress',
     'zope.sqlalchemy',
+    'pip',
 ]
 test_requires = requires.append('webtest')
 

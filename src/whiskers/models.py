@@ -1,4 +1,5 @@
 import json
+from distutils.version import StrictVersion, LooseVersion
 
 from datetime import datetime
 
@@ -283,7 +284,9 @@ class Package(Base):
             query = DBSession.query(klass).join(Version).\
                 filter(klass.name == name).\
                 order_by(Version.version.desc())
-            return query
+            packages = query.all()
+            packages.sort(key=lambda x: LooseVersion(x.version.version), reverse=True)
+            return packages
         except NoResultFound:
             return None
 
@@ -293,6 +296,11 @@ class Package(Base):
         query = DBSession.query(klass).group_by(klass.name).\
             order_by(klass.name).all()
         return query
+
+    @classmethod
+    def get_by_id(klass, package_id):
+        """Return the package with the given id"""
+        return  DBSession.query(klass).join(id==package_id).first()
 
     @classmethod
     def get_by_nameversion(klass, name, version=None):
@@ -315,7 +323,11 @@ class Package(Base):
     def get_newest_by_name(klass, name):
         """Returns the newest package with the given name or
         None if no package exists with that name"""
-        return klass.get_packages_by_name(name).first()
+        packages = klass.get_packages_by_name(name)
+        if len(packages)>0:
+            return packages[0]
+
+        return None
 
     def isNewest(self):
         """Returns True when self is the latest package with the same name"""

@@ -33,16 +33,16 @@ class PackagesView(object):
         other_versions = False
 
         if package_id:
-            package = packages.filter(models.Package.id == package_id).first()
+            package = models.Package.get_by_id(package_id)
             if package and package.requires:
                 requires = package.requires
         else:
             package = None
 
-        if packages.count() > 1:
+        if len(packages) > 1:
             other_versions = True
 
-        return {'packages': packages.all(), 'package': package,
+        return {'packages': packages, 'package': package,
                 'package_name': package_name, 'main': self.main,
                 'other_versions': other_versions,
                 'requires': requires}
